@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
 import ConfigParser
+import os
 from iptcinfo import IPTCInfo
 from PythonMagick import *
+from natsort import *
 
-imagedefaultresolutionLong = 300
-imagedefaultresolutionShort = 200
 
 class Slot:
     def __init__(self, orientation, imagePosition, textPosition):
@@ -55,7 +55,6 @@ class Layout:
         print ' Slot with %s orientation added' % orientation
 
     def isCompatible(self, images):
-        print 'images.len = %i, slots.len=%i' % (len(images), len(self.slots))
         if len(images) != len(self.slots):
             return False
         i = 0
@@ -64,18 +63,12 @@ class Layout:
             i += 1
             currentImage = currentImageAndPath.getImage()
             ratio = 1.*currentImage.size().width() / currentImage.size().height()
-            print ratio
             if ratio > 1 and slot.getOrientation() == 'h':
-                if ratio > 1.4 or ratio < 1.3:
-                    print 'Not supported ratio : ' + ratio
-                pass 
+                return True
             elif ratio < 1 and slot.getOrientation() == 'v':
-                if ratio != 0.75:
-                    print 'Not supported ratio : ' + ratio
-                pass
+                return True
             else:
                 return False
-        return True
 
     """
     imageSrc : magick++ image src
@@ -84,7 +77,6 @@ class Layout:
     def render(self, imageSrc, images):
         i = 0
         for slot in self.slots:
-            print images
             currentImageAndPath = images[i]
             i += 1
             currentImage = currentImageAndPath.getImage()
@@ -103,33 +95,55 @@ class Layout:
                 print 'EXIF orientation not supported yet'
 
             currentImage.resize(Geometry(sizex, sizey))
-            imageSrc.composite(currentImage, slot.getPosition().x, slot.getPosition().y)
+
+            drawableImage = DrawableCompositeImage(slot.getPosition().x, slot.getPosition().y,
+            currentImage)
+            imageSrc.draw(drawableImage)
 
             try:
                 info = IPTCInfo(currentImageAndPath.getPath())
                 title = info.data['caption/abstract']
                 drawableText = DrawableText(slot.getTextPosition().x, slot.getTextPosition().y, title)
-                imageSrc.draw(drawableText)
+                drawableFont = DrawableFont(self.pageProperties.finalImageFont)
+                drawablePointSize = DrawablePointSize(self.pageProperties.finalImageFontSize)
+                imageSrc.draw(drawableFont, drawablePointSize, drawableText)
             except:
                 print "No iptc data for " + currentImageAndPath.getPath()
 
-            print 'Image "%s" added in layout' % currentImageAndPath.getPath()
+            print 'Image "%s" added in layout %s' % (currentImageAndPath.getPath(), self.name)
+
+    @staticmethod
+    def getCompatibleLayoutForOneImageNumber(layouts, images):
+        for l in layouts:
+            if l.isCompatible(images):
+                return l
+        return None
+
+    @staticmethod
+    def getCompatibleLayout(layouts, images):
+        imageNumber = 3
+        while imageNumber > 0:
+            compatibleLayout = Layout.getCompatibleLayoutForOneImageNumber(layouts, images[0:imageNumber])
+            if compatibleLayout != None:
+                return (imageNumber, compatibleLayout)
+            else:
+                imageNumber -= 1
+
+        print 'No layout compatible found'
+        return (0, None)
+        
 
 class PageProperties:
     pass
         
-def parseFile():
-    pass
-
-
-
-def main():
-    configFile = 'firstTry.cfg'
+def parseConfig(configFile):
     config = ConfigParser.RawConfigParser()
     config.read(configFile)
     pageProperties = PageProperties()
     layouts = []
     pageProperties.finalImageResolution = config.get('general', 'finalImage.resolution')
+    pageProperties.finalImageFont = config.get('general', 'finalImage.font')
+    pageProperties.finalImageFontSize = config.getint('general', 'finalImage.fontSize')
     pageProperties.imageResolutionLong = config.getint('general', 'image.default.resolutionLong')
     pageProperties.imageResolutionShort = config.getint('general', 'image.default.resolutionShort')
     
@@ -150,49 +164,48 @@ def main():
                     values = config.get(section, label).split(',')
                     l.addSlot(values[0].strip(), Size(values[1].strip()), Size(values[2].strip()))
 
+    return (pageProperties, layouts)
+
+
+
+def main():
+    (pageProperties, layouts) = parseConfig('firstTry.cfg')
     
     base = '/home/sebastien/Videos/Album nouveau Seb/'
-    images = [
-    ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (1).JPG"), 
-    ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (2).JPG"), 
-    ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (3).JPG"), 
-    ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (4).JPG"), 
-    ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (5).JPG")]
-    allImages = []
+    images = []
+    for filename in natsorted(os.listdir(base)):
+        if filename.endswith('.JPG'):
+            images.append(ImageAndPath(base + filename))
+    #[
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (1).JPG"), 
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (2).JPG"), 
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (3).JPG"), 
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (5).JPG"),
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (4).JPG"), 
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (1).JPG"), 
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (2).JPG"), 
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (5).JPG"),
+    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (5).JPG"),
+    #]
 
     index = 0
     page = 0
 
     while index < len(images):
-        big = Image(pageProperties.finalImageResolution, 'white')
-        allImages.append(big)
-        compatibleLayout = None
-        imageNumber = 3
-        for l in layouts:
-            if l.isCompatible(images[index:index+imageNumber]):
-                compatibleLayout = l
-                break
-        if compatibleLayout == None:
-            print 'Trying with only two slots'
-            imageNumber = 2
-            for l in layouts:
-                if l.isCompatible(images[index:index+imageNumber]):
-                    compatibleLayout = l
-                    break
+        pageImage = Image(pageProperties.finalImageResolution, 'white')
 
+        (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
         if compatibleLayout == None:
             print 'No layout compatible found'
             return
 
-        compatibleLayout.render(big, images[index:index+imageNumber])
+        compatibleLayout.render(pageImage, images[index:index+imageNumber])
         print 'Page %i has been rendered with image %i to %i with layout %s' % (page, index, index
         + imageNumber, compatibleLayout.name)
         page += 1
         index += imageNumber
+        pageImage.write('images/page-%i.jpg' % page)
     
-    for image in allImages:
-        image.display()
-
 if __name__ == "__main__":
     main()
 

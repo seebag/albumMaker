@@ -1,7 +1,9 @@
 #!/usr/bin/env python
+# -*- coding: iso-8859-15 -*-
 
 import ConfigParser
 import os
+import logging
 from iptcinfo import IPTCInfo
 from PythonMagick import *
 from natsort import *
@@ -42,6 +44,8 @@ class ImageAndPath:
             self.image.read(self.path)
         return self.image
 
+    def getExifOrientation(self):
+        return int(self.getImage().attribute('EXIF:Orientation'))
 
 class Layout:
     def __init__(self, name, pageProperties):
@@ -62,13 +66,34 @@ class Layout:
             currentImageAndPath = images[i]
             i += 1
             currentImage = currentImageAndPath.getImage()
-            ratio = 1.*currentImage.size().width() / currentImage.size().height()
-            if ratio > 1 and slot.getOrientation() == 'h':
-                return True
-            elif ratio < 1 and slot.getOrientation() == 'v':
-                return True
+            orientation = currentImageAndPath.getExifOrientation()
+
+            if orientation <= 1:
+                # Use simple ratio
+                ratio = 1.*currentImage.size().width() / currentImage.size().height()
+                logging.debug('Detected ratio %f' % ratio)
+                if ratio > 1:
+                    detectedOrientation = 'h'
+                elif ratio < 1:
+                    detectedOrientation = 'v'
             else:
+                # Use Exif orientation
+                logging.debug('Detected exif orientation %i' % orientation)
+                if orientation == 6 or orientation == 4:
+                    detectedOrientation = 'v'
+                else:
+                    logging.warning('Not supported EXIF orientation : %i' % orientation)
+                    detectedOrientation = 'h'
+
+            logging.debug('Detected orientation %s for %s' % (detectedOrientation,
+            currentImageAndPath.getPath()))
+
+            if detectedOrientation != slot.getOrientation():
                 return False
+
+        return True
+
+
 
     """
     imageSrc : magick++ image src
@@ -88,16 +113,43 @@ class Layout:
                 sizex = self.pageProperties.imageResolutionShort
                 sizey = self.pageProperties.imageResolutionLong
             else:
-                print 'Not supported orientation: ' + slot.getOrientation()
+                logging.warning('Not supported orientation: ' + slot.getOrientation())
                 continue
 
-            if currentImage.attribute('EXIF:Orientation') != '1':
-                print 'EXIF orientation not supported yet'
 
+            orientation = currentImageAndPath.getExifOrientation()
+            if orientation > 1:
+                if orientation == 6:
+                    degree = 90
+                elif orientation == 4:
+                    degree = 270
+                else:
+                    logging.warning('EXIF orientation %i not supported yet : %s' % orientation)
+                    degree = 0
+                currentImage.rotate(degree)
+                logging.info('Image rotated')
+
+
+            # Resize image
+            logging.debug('Resize image to %ix%i' % (sizex, sizey))
             currentImage.resize(Geometry(sizex, sizey))
 
-            drawableImage = DrawableCompositeImage(slot.getPosition().x, slot.getPosition().y,
-            currentImage)
+            # Compute ratio deltas
+            curx = currentImage.size().width()
+            cury = currentImage.size().height()
+            deltax = 0
+            deltay = 0
+            if sizex * cury != sizey * curx:
+                # Not original ratio
+                if slot.getOrientation() == 'h':
+                    deltax = (sizex - (sizey * curx / cury)) / 2
+                else:
+                    deltay = (sizey - (sizex * cury / curx)) / 2
+            print 'delta to apply %ix%i' % (deltax, deltay)
+
+            # Insert image 
+            drawableImage = DrawableCompositeImage(slot.getPosition().x + deltax,
+            slot.getPosition().y + deltay, currentImage)
             imageSrc.draw(drawableImage)
 
             try:
@@ -108,9 +160,18 @@ class Layout:
                 drawablePointSize = DrawablePointSize(self.pageProperties.finalImageFontSize)
                 imageSrc.draw(drawableFont, drawablePointSize, drawableText)
             except:
-                print "No iptc data for " + currentImageAndPath.getPath()
+                logging.warning("No iptc data for " + currentImageAndPath.getPath())
+                print 'Geometry(%i, %i, %i, %i)' % (slot.getTextPosition().x,
+                                slot.getTextPosition().y, slot.getTextPosition().x + 500,
+                                slot.getTextPosition().y 
+                                                + 300)
+                drawableText = DrawableText(slot.getTextPosition().x, slot.getTextPosition().y,
+                'drawable')
+                drawableFont = DrawableFont(self.pageProperties.finalImageFont)
+                drawablePointSize = DrawablePointSize(self.pageProperties.finalImageFontSize)
+                imageSrc.draw(drawableFont, drawablePointSize, drawableText)
 
-            print 'Image "%s" added in layout %s' % (currentImageAndPath.getPath(), self.name)
+            logging.info('Image "%s" added in layout %s' % (currentImageAndPath.getPath(), self.name))
 
     @staticmethod
     def getCompatibleLayoutForOneImageNumber(layouts, images):
@@ -129,7 +190,7 @@ class Layout:
             else:
                 imageNumber -= 1
 
-        print 'No layout compatible found'
+        logging.error('No layout compatible found')
         return (0, None)
         
 
@@ -169,24 +230,20 @@ def parseConfig(configFile):
 
 
 def main():
+    logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
     (pageProperties, layouts) = parseConfig('firstTry.cfg')
     
     base = '/home/sebastien/Videos/Album nouveau Seb/'
+    #images = [
+    #ImageAndPath("/home/sebastien/Videos/Album nouveau Seb/10- Semaine de Noel en Belgique du 27 au 31 décembre (Bruges, cousine Marie, Bruxelles, Géocaching)  (6).JPG"),
+    #ImageAndPath("/home/sebastien/Videos/Album nouveau Seb/10- Semaine de Noel en Belgique du 27 au 31 décembre (Bruges, cousine Marie, Bruxelles, Géocaching)  (7).JPG"),
+    #ImageAndPath("/home/sebastien/Videos/Album nouveau Seb/10- Semaine de Noel en Belgique du 27 au 31 décembre (Bruges, cousine Marie, Bruxelles, Géocaching)  (8).JPG"),
+    #]
+
     images = []
     for filename in natsorted(os.listdir(base)):
         if filename.endswith('.JPG'):
             images.append(ImageAndPath(base + filename))
-    #[
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (1).JPG"), 
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (2).JPG"), 
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (3).JPG"), 
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (5).JPG"),
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (4).JPG"), 
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (1).JPG"), 
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (2).JPG"), 
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (5).JPG"),
-    #ImageAndPath(base + "1- We Disney 24-25 septembre et rencontre avec didier (5).JPG"),
-    #]
 
     index = 0
     page = 0

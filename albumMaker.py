@@ -5,7 +5,8 @@ import ConfigParser
 import os
 import logging
 from iptcinfo import IPTCInfo
-from PythonMagick import *
+from PIL import Image, ImageDraw,ImageFont
+from PIL.ExifTags import TAGS
 from natsort import *
 
 
@@ -40,12 +41,16 @@ class ImageAndPath:
 
     def getImage(self):
         if self.image == None:
-            self.image = Image()
-            self.image.read(self.path)
+            self.image = Image.open(self.path)
         return self.image
 
     def getExifOrientation(self):
-        return int(self.getImage().attribute('EXIF:Orientation'))
+        info = self.getImage()._getexif()
+        for tag, value in info.items():
+            decoded = TAGS.get(tag, tag)
+            if decoded == 'Orientation':
+                return value
+        return 0
 
 class Layout:
     def __init__(self, name, pageProperties):
@@ -70,7 +75,7 @@ class Layout:
 
             if orientation <= 1:
                 # Use simple ratio
-                ratio = 1.*currentImage.size().width() / currentImage.size().height()
+                ratio = 1.*currentImage.size[0] / currentImage.size[1]
                 logging.debug('Detected ratio %f' % ratio)
                 if ratio > 1:
                     detectedOrientation = 'h'
@@ -120,23 +125,24 @@ class Layout:
             orientation = currentImageAndPath.getExifOrientation()
             if orientation > 1:
                 if orientation == 6:
-                    degree = 90
+                    degree = Image.ROTATE_90
                 elif orientation == 4:
-                    degree = 270
+                    degree = Image.ROTATE_270
                 else:
                     logging.warning('EXIF orientation %i not supported yet : %s' % orientation)
                     degree = 0
-                currentImage.rotate(degree)
+                currentImage = currentImage.transpose(degree)
                 logging.info('Image rotated')
 
 
             # Resize image
             logging.debug('Resize image to %ix%i' % (sizex, sizey))
-            currentImage.resize(Geometry(sizex, sizey))
+            currentImage = currentImage.resize((sizex, sizey)) # TODO RATIO ARE RESPECTED SO CHANGE sizex....
+# Also see if resize method matters
 
             # Compute ratio deltas
-            curx = currentImage.size().width()
-            cury = currentImage.size().height()
+            curx = currentImage.size[0]
+            cury = currentImage.size[1]
             deltax = 0
             deltay = 0
             if sizex * cury != sizey * curx:
@@ -148,28 +154,25 @@ class Layout:
             print 'delta to apply %ix%i' % (deltax, deltay)
 
             # Insert image 
-            drawableImage = DrawableCompositeImage(slot.getPosition().x + deltax,
-            slot.getPosition().y + deltay, currentImage)
-            imageSrc.draw(drawableImage)
-
+            imageSrc.paste(currentImage, (slot.getPosition().x + deltax, slot.getPosition().y +
+            deltay))
+            title = ''
             try:
                 info = IPTCInfo(currentImageAndPath.getPath())
                 title = info.data['caption/abstract']
-                drawableText = DrawableText(slot.getTextPosition().x, slot.getTextPosition().y, title)
-                drawableFont = DrawableFont(self.pageProperties.finalImageFont)
-                drawablePointSize = DrawablePointSize(self.pageProperties.finalImageFontSize)
-                imageSrc.draw(drawableFont, drawablePointSize, drawableText)
+                if title == None:
+                    title = ''
+
             except:
                 logging.warning("No iptc data for " + currentImageAndPath.getPath())
-                print 'Geometry(%i, %i, %i, %i)' % (slot.getTextPosition().x,
-                                slot.getTextPosition().y, slot.getTextPosition().x + 500,
-                                slot.getTextPosition().y 
-                                                + 300)
-                drawableText = DrawableText(slot.getTextPosition().x, slot.getTextPosition().y,
-                'drawable')
-                drawableFont = DrawableFont(self.pageProperties.finalImageFont)
-                drawablePointSize = DrawablePointSize(self.pageProperties.finalImageFontSize)
-                imageSrc.draw(drawableFont, drawablePointSize, drawableText)
+                title = 'Texte bidon'
+
+            d = ImageDraw.Draw(imageSrc)
+            font = ImageFont.truetype(self.pageProperties.finalImageFont, self.pageProperties.finalImageFontSize)
+            print 'Title = ' + title
+            sizetext = d.textsize(title, font)
+            deltatext = (sizex / 2) - (sizetext[0] / 2)
+            d.text((slot.getTextPosition().x + deltatext,slot.getTextPosition().y), title, '#000000', font)
 
             logging.info('Image "%s" added in layout %s' % (currentImageAndPath.getPath(), self.name))
 
@@ -249,7 +252,7 @@ def main():
     page = 0
 
     while index < len(images):
-        pageImage = Image(pageProperties.finalImageResolution, 'white')
+        pageImage = Image.new('RGB', (2000,3000), '#ffffff') # TODO use pageProperties
 
         (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
         if compatibleLayout == None:
@@ -261,7 +264,7 @@ def main():
         + imageNumber, compatibleLayout.name)
         page += 1
         index += imageNumber
-        pageImage.write('images/page-%i.jpg' % page)
+        pageImage.save('images/page-%i.jpg' % page)
     
 if __name__ == "__main__":
     main()

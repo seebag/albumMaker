@@ -27,9 +27,23 @@ class Slot:
 
 class Size:
     def __init__(self, string):
-        splitxy = string.split('x')
-        self.x = int(splitxy[0])
-        self.y = int(splitxy[1])
+        self.x = 0
+        self.y = 0
+        self.x2 = 0
+        self.y2 = 0
+        if string != 'auto':
+            split1 = string.split('+')
+            splitxy = split1[0].split('x')
+            self.x = int(splitxy[0])
+            self.y = int(splitxy[1])
+            if len(split1) == 2:
+                splitxy2 = split1[1].split('x')
+                self.x2 = int(splitxy2[0])
+                self.y2 = int(splitxy2[1])
+
+
+    def getTuple(self):
+        return (self.x, self.y)
 
 class ImageAndPath:
     def __init__(self, path):
@@ -46,10 +60,11 @@ class ImageAndPath:
 
     def getExifOrientation(self):
         info = self.getImage()._getexif()
-        for tag, value in info.items():
-            decoded = TAGS.get(tag, tag)
-            if decoded == 'Orientation':
-                return value
+        if info != None:
+            for tag, value in info.items():
+                decoded = TAGS.get(tag, tag)
+                if decoded == 'Orientation':
+                    return value
         return 0
 
 class Layout:
@@ -134,24 +149,27 @@ class Layout:
                 currentImage = currentImage.transpose(degree)
                 logging.info('Image rotated')
 
-
-            # Resize image
-            logging.debug('Resize image to %ix%i' % (sizex, sizey))
-            currentImage = currentImage.resize((sizex, sizey)) # TODO RATIO ARE RESPECTED SO CHANGE sizex....
-# Also see if resize method matters
-
             # Compute ratio deltas
             curx = currentImage.size[0]
             cury = currentImage.size[1]
-            deltax = 0
-            deltay = 0
+            overheadx = 0
+            overheady = 0
+
             if sizex * cury != sizey * curx:
                 # Not original ratio
                 if slot.getOrientation() == 'h':
-                    deltax = (sizex - (sizey * curx / cury)) / 2
+                    overheadx = sizex - (sizey * curx / cury) 
                 else:
-                    deltay = (sizey - (sizex * cury / curx)) / 2
+                    overheady = sizey - (sizex * cury / curx)
+            deltax = overheadx / 2
+            deltay = overheady / 2
             print 'delta to apply %ix%i' % (deltax, deltay)
+            print 'overhead to apply %ix%i' % (overheadx, overheady)
+
+            # Resize image
+            logging.debug('Resize image to %ix%i' % (sizex - overheadx, sizey - overheady))
+            currentImage = currentImage.resize((sizex - overheadx, sizey - overheady),
+            Image.ANTIALIAS)
 
             # Insert image 
             imageSrc.paste(currentImage, (slot.getPosition().x + deltax, slot.getPosition().y +
@@ -172,9 +190,50 @@ class Layout:
             print 'Title = ' + title
             sizetext = d.textsize(title, font)
             deltatext = (sizex / 2) - (sizetext[0] / 2)
-            d.text((slot.getTextPosition().x + deltatext,slot.getTextPosition().y), title, '#000000', font)
+            if sizetext > sizex:
+                logging.warning('Le texte est plus grand que la largeur de la photo !')
+            if slot.getTextPosition().x == 0 and slot.getTextPosition().y == 0:
+                # Auto mode
+                if slot.getOrientation() == 'h':
+                    positionx = slot.getPosition().x + deltatext
+                    positiony = slot.getPosition().y + sizey + sizetext[1] * 0.5
+                else:
+                    logging.error('No automode support for vertical photo')
+
+            else:        
+                positionx = slot.getTextPosition().x
+                positiony = slot.getTextPosition().y
+
+            if slot.getTextPosition().x2 != 0:
+                maxsizex = slot.getTextPosition().x2 - slot.getTextPosition().x
+                print '****** Bounding box defined : %d' % maxsizex
+            else:
+                maxsizex = sizex
+
+            lines = Layout.getLinesFromTitle(title, (maxsizex, 0), d, font)
+            print lines
+            lineindex = 0
+            for line in lines:
+                d.text((positionx, positiony + lineindex * sizetext[1] * 1.5), line, '#000000', font)
+                lineindex += 1
 
             logging.info('Image "%s" added in layout %s' % (currentImageAndPath.getPath(), self.name))
+
+    @staticmethod
+    def getLinesFromTitle(title, boundingbox, draw, font):
+        titletab = title.split(' ')
+        lines = []
+        line = ''
+        oldline = ''
+        for word in titletab:
+            line += word + ' '
+            if draw.textsize(line, font)[0] > boundingbox[0]:
+                lines.append(oldline[0:len(oldline)-1])
+                line = word + ' '
+            oldline = line
+
+        lines.append(oldline[0:len(oldline)-1])
+        return lines
 
     @staticmethod
     def getCompatibleLayoutForOneImageNumber(layouts, images):
@@ -199,13 +258,13 @@ class Layout:
 
 class PageProperties:
     pass
-        
+
 def parseConfig(configFile):
     config = ConfigParser.RawConfigParser()
     config.read(configFile)
     pageProperties = PageProperties()
     layouts = []
-    pageProperties.finalImageResolution = config.get('general', 'finalImage.resolution')
+    pageProperties.finalImageResolution = Size(config.get('general', 'finalImage.resolution'))
     pageProperties.finalImageFont = config.get('general', 'finalImage.font')
     pageProperties.finalImageFontSize = config.getint('general', 'finalImage.fontSize')
     pageProperties.imageResolutionLong = config.getint('general', 'image.default.resolutionLong')
@@ -230,11 +289,9 @@ def parseConfig(configFile):
 
     return (pageProperties, layouts)
 
-
-
 def main():
     logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
-    (pageProperties, layouts) = parseConfig('firstTry.cfg')
+    (pageProperties, layouts) = parseConfig('configuration.cfg')
     
     base = '/home/sebastien/Videos/Album nouveau Seb/'
     #images = [
@@ -242,17 +299,32 @@ def main():
     #ImageAndPath("/home/sebastien/Videos/Album nouveau Seb/10- Semaine de Noel en Belgique du 27 au 31 décembre (Bruges, cousine Marie, Bruxelles, Géocaching)  (7).JPG"),
     #ImageAndPath("/home/sebastien/Videos/Album nouveau Seb/10- Semaine de Noel en Belgique du 27 au 31 décembre (Bruges, cousine Marie, Bruxelles, Géocaching)  (8).JPG"),
     #]
+    images = [
+    ImageAndPath("blackh.jpg"), #1
+    ImageAndPath("blackh.jpg"),
+    ImageAndPath("blackh.jpg"),
+    ImageAndPath("blackv.jpg"), #2
+    ImageAndPath("blackv.jpg"),
+    ImageAndPath("blackh.jpg"), #3
+    ImageAndPath("blackh.jpg"),
+    ImageAndPath("blackv.jpg"), #5
+    ImageAndPath("blackh.jpg"),
+    ImageAndPath("blackh.jpg"), #4
+    ImageAndPath("blackv.jpg"),
+    ImageAndPath("blackh.jpg"), #6
+    ]
 
-    images = []
-    for filename in natsorted(os.listdir(base)):
-        if filename.endswith('.JPG'):
-            images.append(ImageAndPath(base + filename))
+
+    #images = []
+    #for filename in natsorted(os.listdir(base)):
+    #    if filename.endswith('.JPG'):
+    #        images.append(ImageAndPath(base + filename))
 
     index = 0
     page = 0
 
     while index < len(images):
-        pageImage = Image.new('RGB', (2000,3000), '#ffffff') # TODO use pageProperties
+        pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#ffffff')
 
         (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
         if compatibleLayout == None:
@@ -264,7 +336,7 @@ def main():
         + imageNumber, compatibleLayout.name)
         page += 1
         index += imageNumber
-        pageImage.save('images/page-%i.jpg' % page)
+        pageImage.save('images/page-%i.png' % page)
     
 if __name__ == "__main__":
     main()

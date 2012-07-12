@@ -4,11 +4,17 @@
 import ConfigParser
 import os
 import logging
+import re
+import argparse
+import sys
 from iptcinfo import IPTCInfo
-from PIL import Image, ImageDraw,ImageFont
+from PIL import Image, ImageDraw,ImageFont,ImageOps
 from PIL.ExifTags import TAGS
 from natsort import *
+from colorLogging import ColorizingStreamHandler
 
+
+logger = logging.getLogger('albumMaker')
 
 class Slot:
     def __init__(self, orientation, imagePosition, textPosition):
@@ -58,6 +64,9 @@ class ImageAndPath:
             self.image = Image.open(self.path)
         return self.image
 
+    def release(self):
+        self.image = None
+
     def getExifOrientation(self):
         info = self.getImage()._getexif()
         if info != None:
@@ -72,11 +81,11 @@ class Layout:
         self.name = name
         self.pageProperties = pageProperties
         self.slots = []
-        print 'Layout %s added' % name
+        logger.info('Layout %s added' % name)
 
     def addSlot(self, orientation, imagePosition, textPosition):
         self.slots.append(Slot(orientation, imagePosition, textPosition))
-        print ' Slot with %s orientation added' % orientation
+        logger.info(' Slot with %s orientation added' % orientation)
 
     def isCompatible(self, images):
         if len(images) != len(self.slots):
@@ -91,21 +100,21 @@ class Layout:
             if orientation <= 1:
                 # Use simple ratio
                 ratio = 1.*currentImage.size[0] / currentImage.size[1]
-                logging.debug('Detected ratio %f' % ratio)
+                logger.debug('Detected ratio %f' % ratio)
                 if ratio > 1:
                     detectedOrientation = 'h'
                 elif ratio < 1:
                     detectedOrientation = 'v'
             else:
                 # Use Exif orientation
-                logging.debug('Detected exif orientation %i' % orientation)
+                logger.debug('Detected exif orientation %i' % orientation)
                 if orientation == 6 or orientation == 4:
                     detectedOrientation = 'v'
                 else:
-                    logging.warning('Not supported EXIF orientation : %i' % orientation)
+                    logger.warning('Not supported EXIF orientation : %i' % orientation)
                     detectedOrientation = 'h'
 
-            logging.debug('Detected orientation %s for %s' % (detectedOrientation,
+            logger.debug('Detected orientation %s for %s' % (detectedOrientation,
             currentImageAndPath.getPath()))
 
             if detectedOrientation != slot.getOrientation():
@@ -133,21 +142,21 @@ class Layout:
                 sizex = self.pageProperties.imageResolutionShort
                 sizey = self.pageProperties.imageResolutionLong
             else:
-                logging.warning('Not supported orientation: ' + slot.getOrientation())
+                logger.warning('Not supported orientation: ' + slot.getOrientation())
                 continue
 
 
             orientation = currentImageAndPath.getExifOrientation()
             if orientation > 1:
                 if orientation == 6:
-                    degree = Image.ROTATE_90
-                elif orientation == 4:
                     degree = Image.ROTATE_270
+                elif orientation == 4:
+                    degree = Image.ROTATE_90
                 else:
-                    logging.warning('EXIF orientation %i not supported yet : %s' % orientation)
+                    logger.warning('EXIF orientation %i not supported yet : %s' % orientation)
                     degree = 0
                 currentImage = currentImage.transpose(degree)
-                logging.info('Image rotated')
+                logger.info('Image rotated')
 
             # Compute ratio deltas
             curx = currentImage.size[0]
@@ -163,11 +172,10 @@ class Layout:
                     overheady = sizey - (sizex * cury / curx)
             deltax = overheadx / 2
             deltay = overheady / 2
-            print 'delta to apply %ix%i' % (deltax, deltay)
-            print 'overhead to apply %ix%i' % (overheadx, overheady)
+            logger.debug('delta to apply %ix%i' % (deltax, deltay))
 
             # Resize image
-            logging.debug('Resize image to %ix%i' % (sizex - overheadx, sizey - overheady))
+            logger.debug('Resize image to %ix%i' % (sizex - overheadx, sizey - overheady))
             currentImage = currentImage.resize((sizex - overheadx, sizey - overheady),
             Image.ANTIALIAS)
 
@@ -182,23 +190,23 @@ class Layout:
                     title = ''
 
             except:
-                logging.warning("No iptc data for " + currentImageAndPath.getPath())
+                logger.warning("No iptc data for " + currentImageAndPath.getPath())
                 title = 'Texte bidon'
 
             d = ImageDraw.Draw(imageSrc)
             font = ImageFont.truetype(self.pageProperties.finalImageFont, self.pageProperties.finalImageFontSize)
-            print 'Title = ' + title
+            logger.debug('Title = ' + title)
             sizetext = d.textsize(title, font)
             deltatext = (sizex / 2) - (sizetext[0] / 2)
-            if sizetext > sizex:
-                logging.warning('Le texte est plus grand que la largeur de la photo !')
+            if sizetext[0] > sizex:
+                logger.warning('Le texte est plus grand que la largeur de la photo !')
             if slot.getTextPosition().x == 0 and slot.getTextPosition().y == 0:
                 # Auto mode
                 if slot.getOrientation() == 'h':
                     positionx = slot.getPosition().x + deltatext
                     positiony = slot.getPosition().y + sizey + sizetext[1] * 0.5
                 else:
-                    logging.error('No automode support for vertical photo')
+                    logger.error('No automode support for vertical photo')
 
             else:        
                 positionx = slot.getTextPosition().x
@@ -206,18 +214,17 @@ class Layout:
 
             if slot.getTextPosition().x2 != 0:
                 maxsizex = slot.getTextPosition().x2 - slot.getTextPosition().x
-                print '****** Bounding box defined : %d' % maxsizex
             else:
                 maxsizex = sizex
 
             lines = Layout.getLinesFromTitle(title, (maxsizex, 0), d, font)
-            print lines
             lineindex = 0
             for line in lines:
                 d.text((positionx, positiony + lineindex * sizetext[1] * 1.5), line, '#000000', font)
                 lineindex += 1
 
-            logging.info('Image "%s" added in layout %s' % (currentImageAndPath.getPath(), self.name))
+            logger.info('Image "%s" added in layout %s' % (currentImageAndPath.getPath(), self.name))
+            currentImageAndPath.release()
 
     @staticmethod
     def getLinesFromTitle(title, boundingbox, draw, font):
@@ -252,14 +259,37 @@ class Layout:
             else:
                 imageNumber -= 1
 
-        logging.error('No layout compatible found')
+        logger.error('No layout compatible found')
         return (0, None)
-        
+
+def drawIndex(image, chapterNumber, chapterName, pageProperties):
+    positionx = pageProperties.finalImageResolution.x - pageProperties.bookmarksize.x
+    positiony = int(100 + chapterNumber * pageProperties.bookmarksize.y * 1.2)
+    color = '#' + pageProperties.indexColors[chapterNumber % len(pageProperties.indexColors)]
+
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([(positionx, positiony), (positionx + pageProperties.bookmarksize.x,
+    positiony + pageProperties.bookmarksize.y)], fill=color)
+    if chapterName != '':
+        logger.info("Printing chapter '%s' title" % chapterName)
+        chapterName = chapterName.decode('utf-8')
+        font = ImageFont.truetype(pageProperties.bookmarkFont, pageProperties.bookmarkFontSize)
+        size = draw.textsize(chapterName, font)
+        mask=Image.new('L', size)
+        drawImg = ImageDraw.Draw(mask)
+        drawImg.text((0,0), chapterName, 255, font)
+        m2 = mask.rotate(270)
+        image.paste(ImageOps.colorize(m2, (0,0,0), (0,0,0)), (positionx +
+        pageProperties.bookmarksize.x / 2 - size[1] / 2,100),  m2)
+
+
+
 
 class PageProperties:
     pass
 
 def parseConfig(configFile):
+    logger.info("Parsing configuration")
     config = ConfigParser.RawConfigParser()
     config.read(configFile)
     pageProperties = PageProperties()
@@ -269,6 +299,13 @@ def parseConfig(configFile):
     pageProperties.finalImageFontSize = config.getint('general', 'finalImage.fontSize')
     pageProperties.imageResolutionLong = config.getint('general', 'image.default.resolutionLong')
     pageProperties.imageResolutionShort = config.getint('general', 'image.default.resolutionShort')
+    pageProperties.bookmarksize = Size(config.get('general', 'index.bookmark.size'))
+    pageProperties.bookmarkFont = config.get('general', 'index.bookmark.font')
+    pageProperties.bookmarkFontSize = config.getint('general', 'index.bookmark.fontSize')
+    pageProperties.indexColors = [ ]
+    for colors in config.get('general',  'index.colors').split(','):
+        pageProperties.indexColors.append(colors.strip())
+
     
     for section in config.sections():
         if section.startswith('layout-'):
@@ -287,56 +324,101 @@ def parseConfig(configFile):
                     values = config.get(section, label).split(',')
                     l.addSlot(values[0].strip(), Size(values[1].strip()), Size(values[2].strip()))
 
+    logger.info("Parsing done")
     return (pageProperties, layouts)
 
 def main():
-    logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
+    parser = argparse.ArgumentParser(description='Make album from single photos')
+    parser.add_argument('inputdir', nargs=1)
+    parser.add_argument('-o', '--out', dest='outputDirectory')
+    parser.add_argument('--testBlack', dest='testBlack', action='store_const', const=True,
+    default=False)
+    parser.add_argument('--testChapter', dest='testChapter', action='store_const', const=True,
+    default=False)
+    args = vars(parser.parse_args())
+
+    logger.addHandler(ColorizingStreamHandler())
+    logger.setLevel(logging.DEBUG)
+
     (pageProperties, layouts) = parseConfig('configuration.cfg')
     
-    base = '/home/sebastien/Videos/Album nouveau Seb/'
-    #images = [
-    #ImageAndPath("/home/sebastien/Videos/Album nouveau Seb/10- Semaine de Noel en Belgique du 27 au 31 décembre (Bruges, cousine Marie, Bruxelles, Géocaching)  (6).JPG"),
-    #ImageAndPath("/home/sebastien/Videos/Album nouveau Seb/10- Semaine de Noel en Belgique du 27 au 31 décembre (Bruges, cousine Marie, Bruxelles, Géocaching)  (7).JPG"),
-    #ImageAndPath("/home/sebastien/Videos/Album nouveau Seb/10- Semaine de Noel en Belgique du 27 au 31 décembre (Bruges, cousine Marie, Bruxelles, Géocaching)  (8).JPG"),
-    #]
-    images = [
-    ImageAndPath("blackh.jpg"), #1
-    ImageAndPath("blackh.jpg"),
-    ImageAndPath("blackh.jpg"),
-    ImageAndPath("blackv.jpg"), #2
-    ImageAndPath("blackv.jpg"),
-    ImageAndPath("blackh.jpg"), #3
-    ImageAndPath("blackh.jpg"),
-    ImageAndPath("blackv.jpg"), #5
-    ImageAndPath("blackh.jpg"),
-    ImageAndPath("blackh.jpg"), #4
-    ImageAndPath("blackv.jpg"),
-    ImageAndPath("blackh.jpg"), #6
-    ]
+    inputdir = args['inputdir'][0]
+    if args['outputDirectory'] != None:
+        outputdir = args['outputDirectory']
+    else:
+        outputdir = inputdir + '/out/'
+
+    if args['testBlack']:
+        imgv = ImageAndPath("blackv.jpg")
+        imgh = ImageAndPath("blackh.jpg")
+        chapters = {
+        1 : [
+        imgh, imgh, imgh, #1
+        imgv, imgv, #2
+        imgh, imgh, #3
+        imgv, imgh, #5
+        imgh, imgv, #4
+        imgh, #6
+        ],
+        2 : [
+        imgv, #7
+        ]
+        }
+        chapterList = {
+        1 : 'Chapitre 1',
+        2 : 'Chapitre 2',
+        }
+    elif args['testChapter']:
+        img =  [ ImageAndPath("blackh.jpg") ]
+        chapters = { }
+        chapterList = { }
+        for i in range(0, 20):
+            chapters[i] = img
+            chapterList[i] = 'Chapitre %i' % i
+    else:
+        chapterList = { }
+        chapters = { }
+
+        allimages = []
+        for filename in natsorted(os.listdir(inputdir)):
+            if filename.endswith('.JPG'):
+                allimages.append(ImageAndPath(inputdir + filename))
+        for i in allimages:
+            id = re.match(r'.*/(?P<chapter>\d+)-(?P<chapterName>.*)\((?P<number>\d+)\).*', i.getPath()).groupdict()
+            if not chapters.has_key(int(id['chapter'])):
+                chapters[int(id['chapter'])] = []
+                chapterList[int(id['chapter'])] = id['chapterName'].strip()
+            chapters[int(id['chapter'])].append(i)
 
 
-    #images = []
-    #for filename in natsorted(os.listdir(base)):
-    #    if filename.endswith('.JPG'):
-    #        images.append(ImageAndPath(base + filename))
-
-    index = 0
     page = 0
+    for chapterNumber in chapters:
+        images = chapters[chapterNumber]
+        chapterName = chapterList[chapterNumber]
+        logger.info(' ** Starting chapter %s' % chapterName)
+        index = 0
+        while index < len(images):
+            logger.info('   > Starting rendering page %i' % page)
+            pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#ffffff')
 
-    while index < len(images):
-        pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#ffffff')
+            (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
+            if compatibleLayout == None:
+                logging.error('No layout compatible found')
+                return
 
-        (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
-        if compatibleLayout == None:
-            print 'No layout compatible found'
-            return
+            compatibleLayout.render(pageImage, images[index:index+imageNumber])
+            if index == 0:
+                drawIndex(pageImage, chapterNumber, chapterName, pageProperties)
+            else:
+                drawIndex(pageImage, chapterNumber, '', pageProperties)
 
-        compatibleLayout.render(pageImage, images[index:index+imageNumber])
-        print 'Page %i has been rendered with image %i to %i with layout %s' % (page, index, index
-        + imageNumber, compatibleLayout.name)
-        page += 1
-        index += imageNumber
-        pageImage.save('images/page-%i.png' % page)
+            pageImage.save('%s/page-%i.png' % (outputdir, page))
+
+            logger.info(' ==> Page %i has been rendered with image %i to %i with layout %s' % (page, index, index
+            + imageNumber, compatibleLayout.name))
+
+            page += 1
+            index += imageNumber
     
 if __name__ == "__main__":
     main()

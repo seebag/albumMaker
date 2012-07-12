@@ -349,8 +349,8 @@ def main():
         outputdir = inputdir + '/out/'
 
     if args['testBlack']:
-        imgv = ImageAndPath("blackv.jpg")
-        imgh = ImageAndPath("blackh.jpg")
+        imgv = ImageAndPath("ressources/blackv.jpg")
+        imgh = ImageAndPath("ressources/blackh.jpg")
         chapters = {
         1 : [
         imgh, imgh, imgh, #1
@@ -369,7 +369,7 @@ def main():
         2 : 'Chapitre 2',
         }
     elif args['testChapter']:
-        img =  [ ImageAndPath("blackh.jpg") ]
+        img =  [ ImageAndPath("ressources/blackh.jpg") ]
         chapters = { }
         chapterList = { }
         for i in range(0, 20):

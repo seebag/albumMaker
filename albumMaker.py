@@ -40,15 +40,20 @@ class Size:
         self.y = 0
         self.x2 = 0
         self.y2 = 0
+        self.align = 'left'
         if string != 'auto':
             split1 = string.split('+')
             splitxy = split1[0].split('x')
             self.x = int(splitxy[0])
             self.y = int(splitxy[1])
-            if len(split1) == 2:
+            if len(split1) > 1:
                 splitxy2 = split1[1].split('x')
                 self.x2 = int(splitxy2[0])
                 self.y2 = int(splitxy2[1])
+            if len(split1) > 2:
+                self.align = split1[2]
+        else:
+            self.align = 'center'
 
 
     def getTuple(self):
@@ -204,18 +209,14 @@ class Layout:
             d = ImageDraw.Draw(imageSrc)
             font = ImageFont.truetype(self.pageProperties.finalImageFont, self.pageProperties.finalImageFontSize)
             logger.debug('Title = ' + title)
-            sizetext = d.textsize(title, font)
-            deltatext = (sizex / 2) - (sizetext[0] / 2)
-            if sizetext[0] > sizex:
-                logger.warning('Le texte est plus grand que la largeur de la photo !')
-            if slot.getTextPosition().x == 0 and slot.getTextPosition().y == 0:
+            automode = slot.getTextPosition().x == 0 and slot.getTextPosition().y == 0
+            if automode:
                 # Auto mode
                 if slot.getOrientation() == 'h':
-                    positionx = slot.getPosition().x + deltatext
-                    positiony = slot.getPosition().y + sizey + sizetext[1] * 0.5
+                    positionx = slot.getPosition().x
+                    positiony = slot.getPosition().y + sizey + 30
                 else:
                     logger.error('No automode support for vertical photo')
-
             else:        
                 positionx = slot.getTextPosition().x
                 positiony = slot.getTextPosition().y
@@ -226,9 +227,26 @@ class Layout:
                 maxsizex = sizex
 
             lines = Layout.getLinesFromTitle(title, (maxsizex, 0), d, font)
+            if automode and len(lines) > 1:
+                logger.warning('Le texte est plus grand que la largeur de la photo !')
             lineindex = 0
             for line in lines:
-                d.text((positionx, positiony + lineindex * sizetext[1] * 1.5), line, '#000000', font)
+                text = line[0]
+                textsize = line[1]
+                if slot.getTextPosition().align == 'left':
+                    deltatextx = 0
+                elif slot.getTextPosition().align == 'center':
+                    deltatextx = maxsizex / 2 - textsize[0] / 2
+                elif slot.getTextPosition().align == 'right':
+                    deltatextx = maxsizex - textsize[0]
+                else:
+                    logger.warning('Undefined %s centering' % slot.getTextPosition().align)
+                    deltatextx = 0
+                d.text((positionx + deltatextx, positiony + lineindex * textsize[1] * 1.5), text, '#000000', font)
+                logger.debug("Writing text '%s' of size %ix%i at %ix%i align=%s" % (text,
+                textsize[0], textsize[1], positionx +
+                deltatextx, positiony + lineindex * textsize[1] * 1.5,
+                slot.getTextPosition().align))
                 lineindex += 1
 
             logger.info("Image '%s' added" % currentImageAndPath.getName())
@@ -241,14 +259,17 @@ class Layout:
         lines = []
         line = ''
         oldline = ''
+        oldtextsize = 0
         for word in titletab:
             line += word + ' '
-            if draw.textsize(line, font)[0] > boundingbox[0]:
-                lines.append(oldline[0:len(oldline)-1])
+            textsize = draw.textsize(line, font)
+            if textsize[0] > boundingbox[0]:
+                lines.append((oldline[0:len(oldline)-1], oldtextsize))
                 line = word + ' '
             oldline = line
+            oldtextsize = textsize
 
-        lines.append(oldline[0:len(oldline)-1])
+        lines.append((oldline[0:len(oldline)-1], oldtextsize))
         return lines
 
     @staticmethod

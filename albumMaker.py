@@ -84,6 +84,7 @@ class ImageAndPath:
         return 0
 
 class Layout:
+    allPicturesInserted = 0
     def __init__(self, name, pageProperties):
         self.name = name
         self.pageProperties = pageProperties
@@ -231,6 +232,7 @@ class Layout:
                 lineindex += 1
 
             logger.info("Image '%s' added" % currentImageAndPath.getName())
+            Layout.allPicturesInserted += 1
             currentImageAndPath.release()
 
     @staticmethod
@@ -410,6 +412,7 @@ def main():
 
 
     page = 0
+    index = 0
     for chapterNumber in chapters:
         images = chapters[chapterNumber]
         chapterName = chapterList[chapterNumber]
@@ -438,6 +441,7 @@ def main():
 
             page += 1
             index += imageNumber
+    logger.info('%i pictures has been rendered in %i pages' % (Layout.allPicturesInserted, page))
     
 if __name__ == "__main__":
     main()

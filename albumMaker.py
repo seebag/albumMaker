@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: iso-8859-15 -*-
+#
+# Copyright (C) 2012 Sebastien Baguet. All rights reserved. Licensed under the new BSD license.
+#
 
 import ConfigParser
 import os
@@ -58,6 +61,10 @@ class ImageAndPath:
 
     def getPath(self):
         return self.path
+
+    def getName(self):
+        return os.path.basename(self.path)
+
 
     def getImage(self):
         if self.image == None:
@@ -190,7 +197,7 @@ class Layout:
                     title = ''
 
             except:
-                logger.warning("No iptc data for " + currentImageAndPath.getPath())
+                logger.warning("No comments for '%s'" % currentImageAndPath.getName())
                 title = 'Texte bidon'
 
             d = ImageDraw.Draw(imageSrc)
@@ -223,7 +230,7 @@ class Layout:
                 d.text((positionx, positiony + lineindex * sizetext[1] * 1.5), line, '#000000', font)
                 lineindex += 1
 
-            logger.info('Image "%s" added in layout %s' % (currentImageAndPath.getPath(), self.name))
+            logger.info("Image '%s' added" % currentImageAndPath.getName())
             currentImageAndPath.release()
 
     @staticmethod
@@ -335,18 +342,29 @@ def main():
     default=False)
     parser.add_argument('--testChapter', dest='testChapter', action='store_const', const=True,
     default=False)
+    parser.add_argument('--debug', action='store_const', const=True, default=False)
     args = vars(parser.parse_args())
 
     logger.addHandler(ColorizingStreamHandler())
-    logger.setLevel(logging.DEBUG)
 
-    (pageProperties, layouts) = parseConfig('configuration.cfg')
-    
-    inputdir = args['inputdir'][0]
+    if args['debug']:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
+
+
+    logger.info("Starting albumMaker")
+
+    inputdir = args['inputdir'][0] + '/'
     if args['outputDirectory'] != None:
-        outputdir = args['outputDirectory']
+        outputdir = args['outputDirectory'] + '/'
     else:
         outputdir = inputdir + '/out/'
+
+    logger.info("   inputdir = %s" % inputdir)
+    logger.info("   outputdir = %s" % outputdir)
+
+    (pageProperties, layouts) = parseConfig('configuration.cfg')
 
     if args['testBlack']:
         imgv = ImageAndPath("ressources/blackv.jpg")
@@ -381,7 +399,7 @@ def main():
 
         allimages = []
         for filename in natsorted(os.listdir(inputdir)):
-            if filename.endswith('.JPG'):
+            if filename.endswith('.JPG') or filename.endswith('.jpg'):
                 allimages.append(ImageAndPath(inputdir + filename))
         for i in allimages:
             id = re.match(r'.*/(?P<chapter>\d+)-(?P<chapterName>.*)\((?P<number>\d+)\).*', i.getPath()).groupdict()
@@ -395,11 +413,11 @@ def main():
     for chapterNumber in chapters:
         images = chapters[chapterNumber]
         chapterName = chapterList[chapterNumber]
-        logger.info(' ** Starting chapter %s' % chapterName)
+        logger.info(" ** Starting chapter '%s'" % chapterName)
         index = 0
         while index < len(images):
             logger.info('   > Starting rendering page %i' % page)
-            pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#ffffff')
+            pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#eeeec1')
 
             (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
             if compatibleLayout == None:

@@ -419,16 +419,17 @@ def main():
             logger.info('   > Starting rendering page %i' % page)
             pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#eeeec1')
 
+            if index == 0:
+                drawIndex(pageImage, chapterNumber, chapterName, pageProperties)
+            else:
+                drawIndex(pageImage, chapterNumber, '', pageProperties)
+
             (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
             if compatibleLayout == None:
                 logging.error('No layout compatible found')
                 return
 
             compatibleLayout.render(pageImage, images[index:index+imageNumber])
-            if index == 0:
-                drawIndex(pageImage, chapterNumber, chapterName, pageProperties)
-            else:
-                drawIndex(pageImage, chapterNumber, '', pageProperties)
 
             pageImage.save('%s/page-%i.png' % (outputdir, page))
 

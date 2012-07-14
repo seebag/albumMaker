@@ -269,7 +269,7 @@ class Layout:
         logger.error('No layout compatible found')
         return (0, None)
 
-def drawIndex(image, chapterNumber, chapterName, pageProperties):
+def drawBookmark(image, chapterNumber, chapterName, pageProperties):
     positionx = pageProperties.finalImageResolution.x - pageProperties.bookmarksize.x
     positiony = int(100 + chapterNumber * pageProperties.bookmarksize.y * 1.2)
     color = '#' + pageProperties.indexColors[chapterNumber % len(pageProperties.indexColors)]
@@ -285,7 +285,7 @@ def drawIndex(image, chapterNumber, chapterName, pageProperties):
         mask=Image.new('L', size)
         drawImg = ImageDraw.Draw(mask)
         drawImg.text((0,0), chapterName, 255, font)
-        m2 = mask.rotate(270)
+        m2 = mask.rotate(90)
         image.paste(ImageOps.colorize(m2, (0,0,0), (0,0,0)), (positionx +
         pageProperties.bookmarksize.x / 2 - size[1] / 2,100),  m2)
 
@@ -420,9 +420,9 @@ def main():
             pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#eeeec1')
 
             if index == 0:
-                drawIndex(pageImage, chapterNumber, chapterName, pageProperties)
+                drawBookmark(pageImage, chapterNumber, chapterName, pageProperties)
             else:
-                drawIndex(pageImage, chapterNumber, '', pageProperties)
+                drawBookmark(pageImage, chapterNumber, '', pageProperties)
 
             (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
             if compatibleLayout == None:

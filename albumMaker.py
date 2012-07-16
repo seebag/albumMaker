@@ -302,7 +302,6 @@ def drawBookmark(image, chapterNumber, chapterName, pageProperties):
     positiony + pageProperties.bookmarksize.y)], fill=color)
     if chapterName != '':
         logger.info("Printing chapter '%s' title" % chapterName)
-        chapterName = chapterName.decode('utf-8')
         font = ImageFont.truetype(pageProperties.bookmarkFont, pageProperties.bookmarkFontSize)
         size = draw.textsize(chapterName, font)
         mask=Image.new('L', size)
@@ -313,6 +312,23 @@ def drawBookmark(image, chapterNumber, chapterName, pageProperties):
         pageProperties.bookmarksize.x / 2 - size[1] / 2,100),  m2)
 
 
+def renderIndex(image, chapterList, chapters, pageProperties):
+    deltax = 200
+    for chapterNumber in chapters:
+        chapterName = chapterList[chapterNumber]
+        font = ImageFont.truetype(pageProperties.bookmarkFont, pageProperties.bookmarkFontSize)
+        draw = ImageDraw.Draw(image)
+
+        thumbnailImage = chapters[chapterNumber][0].getImage()
+        thumbnailImage = thumbnailImage.resize((240, 160), Image.ANTIALIAS)
+        image.paste(thumbnailImage, (deltax, int(100 + chapterNumber * pageProperties.bookmarksize.y
+        * 1.2)))
+
+        size = draw.textsize(chapterName, font)
+        positiony = int(100 + chapterNumber * pageProperties.bookmarksize.y * 1.2 +
+        pageProperties.bookmarksize.y / 2 - size[1] / 2) 
+        draw.text((deltax + 270, positiony), chapterName, '#000000', font)
+        drawBookmark(image, chapterNumber, '', pageProperties)
 
 
 class PageProperties:
@@ -327,6 +343,7 @@ def parseConfig(configFile):
     pageProperties.finalImageResolution = Size(config.get('general', 'finalImage.resolution'))
     pageProperties.finalImageFont = config.get('general', 'finalImage.font')
     pageProperties.finalImageFontSize = config.getint('general', 'finalImage.fontSize')
+    pageProperties.finalImageBackgroundColor = config.get('general', 'finalImage.backgroundColor')
     pageProperties.imageResolutionLong = config.getint('general', 'image.default.resolutionLong')
     pageProperties.imageResolutionShort = config.getint('general', 'image.default.resolutionShort')
     pageProperties.bookmarksize = Size(config.get('general', 'index.bookmark.size'))
@@ -428,11 +445,19 @@ def main():
             id = re.match(r'.*/(?P<chapter>\d+)-(?P<chapterName>.*)\((?P<number>\d+)\).*', i.getPath()).groupdict()
             if not chapters.has_key(int(id['chapter'])):
                 chapters[int(id['chapter'])] = []
-                chapterList[int(id['chapter'])] = id['chapterName'].strip()
+                chapterList[int(id['chapter'])] = id['chapterName'].strip().decode('utf-8')
             chapters[int(id['chapter'])].append(i)
 
 
+    logger.info('Starting index rendering')
     page = 0
+    pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#' +
+    pageProperties.finalImageBackgroundColor)
+    renderIndex(pageImage, chapterList, chapters, pageProperties)
+    pageImage.save('%s/page-%i.png' % (outputdir, page))
+    logger.info('Index rendered')
+
+    page = 1
     index = 0
     for chapterNumber in chapters:
         images = chapters[chapterNumber]
@@ -441,7 +466,8 @@ def main():
         index = 0
         while index < len(images):
             logger.info('   > Starting rendering page %i' % page)
-            pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#eeeec1')
+            pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#' +
+            pageProperties.finalImageBackgroundColor)
 
             if index == 0:
                 drawBookmark(pageImage, chapterNumber, chapterName, pageProperties)

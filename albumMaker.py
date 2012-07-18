@@ -352,6 +352,13 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         draw.text((deltax + 270, positiony), chapterName, '#000000', font)
         drawBookmark(image, chapterNumber, '', pageProperties)
 
+def getNewPageImage(pageProperties):
+    image = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#' +
+    pageProperties.finalImageBackgroundColor)
+
+    return image
+
+
 
 class PageProperties:
     pass
@@ -473,8 +480,7 @@ def main():
 
     logger.info('Starting index rendering')
     page = 0
-    pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#' +
-    pageProperties.finalImageBackgroundColor)
+    pageImage = getNewPageImage(pageProperties)
     renderIndex(pageImage, chapterList, chapters, pageProperties)
     pageImage.save('%s/page-%i.png' % (outputdir, page))
     logger.info('Index rendered')
@@ -488,8 +494,7 @@ def main():
         index = 0
         while index < len(images):
             logger.info('   > Starting rendering page %i' % page)
-            pageImage = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#' +
-            pageProperties.finalImageBackgroundColor)
+            pageImage = getNewPageImage(pageProperties)
 
             if index == 0:
                 drawBookmark(pageImage, chapterNumber, chapterName, pageProperties)

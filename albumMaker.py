@@ -63,6 +63,7 @@ class ImageAndPath:
     def __init__(self, path):
         self.path = path
         self.image = None
+        self.detectedOrientation = None
 
     def getPath(self):
         return self.path
@@ -88,6 +89,48 @@ class ImageAndPath:
                     return value
         return 0
 
+    def rotateAccordingToExif(self):
+        orientation = self.getExifOrientation()
+        if orientation > 1:
+            if orientation == 6:
+                degree = Image.ROTATE_270
+            elif orientation == 4:
+                degree = Image.ROTATE_90
+            else:
+                logger.warning('EXIF orientation %i not supported yet : %s' % orientation)
+                degree = 0
+            self.image = self.getImage().transpose(degree)
+            logger.info('Image rotated')
+
+    def getDetectedOrientation(self):
+        if self.detectedOrientation == None:
+            orientation = self.getExifOrientation()
+            currentImage = self.getImage()
+            detectedOrientation = 'h'
+
+            if orientation <= 1:
+                # Use simple ratio
+                ratio = 1.*currentImage.size[0] / currentImage.size[1]
+                logger.debug('Detected ratio %f' % ratio)
+                if ratio > 1:
+                    self.detectedOrientation = 'h'
+                elif ratio < 1:
+                    self.detectedOrientation = 'v'
+            else:
+                # Use Exif orientation
+                logger.debug('Detected exif orientation %i' % orientation)
+                if orientation == 6 or orientation == 4:
+                    self.detectedOrientation = 'v'
+                else:
+                    logger.warning('Not supported EXIF orientation : %i' % orientation)
+                    self.detectedOrientation = 'h'
+
+            logger.debug('Detected orientation %s for %s' % (self.detectedOrientation,
+            self.getPath()))
+
+        return self.detectedOrientation
+
+
 class Layout:
     allPicturesInserted = 0
     def __init__(self, name, pageProperties):
@@ -108,33 +151,12 @@ class Layout:
             currentImageAndPath = images[i]
             i += 1
             currentImage = currentImageAndPath.getImage()
-            orientation = currentImageAndPath.getExifOrientation()
-
-            if orientation <= 1:
-                # Use simple ratio
-                ratio = 1.*currentImage.size[0] / currentImage.size[1]
-                logger.debug('Detected ratio %f' % ratio)
-                if ratio > 1:
-                    detectedOrientation = 'h'
-                elif ratio < 1:
-                    detectedOrientation = 'v'
-            else:
-                # Use Exif orientation
-                logger.debug('Detected exif orientation %i' % orientation)
-                if orientation == 6 or orientation == 4:
-                    detectedOrientation = 'v'
-                else:
-                    logger.warning('Not supported EXIF orientation : %i' % orientation)
-                    detectedOrientation = 'h'
-
-            logger.debug('Detected orientation %s for %s' % (detectedOrientation,
-            currentImageAndPath.getPath()))
+            detectedOrientation = currentImageAndPath.getDetectedOrientation()
 
             if detectedOrientation != slot.getOrientation():
                 return False
 
         return True
-
 
 
     """
@@ -158,18 +180,10 @@ class Layout:
                 logger.warning('Not supported orientation: ' + slot.getOrientation())
                 continue
 
+            if currentImageAndPath.getDetectedOrientation != slot.getOrientation():
+                logger.error('Not the same orientation between detected and slot !!!')
 
-            orientation = currentImageAndPath.getExifOrientation()
-            if orientation > 1:
-                if orientation == 6:
-                    degree = Image.ROTATE_270
-                elif orientation == 4:
-                    degree = Image.ROTATE_90
-                else:
-                    logger.warning('EXIF orientation %i not supported yet : %s' % orientation)
-                    degree = 0
-                currentImage = currentImage.transpose(degree)
-                logger.info('Image rotated')
+            currentImageAndPath.rotateAccordingToExif()
 
             # Compute ratio deltas
             curx = currentImage.size[0]
@@ -319,8 +333,16 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         font = ImageFont.truetype(pageProperties.bookmarkFont, pageProperties.bookmarkFontSize)
         draw = ImageDraw.Draw(image)
 
-        thumbnailImage = chapters[chapterNumber][0].getImage()
-        thumbnailImage = thumbnailImage.resize((240, 160), Image.ANTIALIAS)
+        thumbnailImageAndPath = chapters[chapterNumber][0]
+        thumbnailImageAndPath.rotateAccordingToExif()
+        thumbnailImage = thumbnailImageAndPath.getImage()
+        ratio = 3. / 2
+        sizex = 240
+        sizey_keep = sizex * thumbnailImage.size[1] / thumbnailImage.size[0]
+        sizey = sizex / ratio
+        thumbnailImage = thumbnailImage.resize((sizex, sizey_keep), Image.ANTIALIAS)
+        if sizey_keep > sizey:
+            thumbnailImage = thumbnailImage.crop((0, (sizey - sizey_keep) / 2), (sizex, (sizey - sizey_keep) / 2 + sizey))
         image.paste(thumbnailImage, (deltax, int(100 + chapterNumber * pageProperties.bookmarksize.y
         * 1.2)))
 

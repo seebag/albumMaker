@@ -106,7 +106,7 @@ class ImageAndPath:
         if self.detectedOrientation == None:
             orientation = self.getExifOrientation()
             currentImage = self.getImage()
-            detectedOrientation = 'h'
+            self.detectedOrientation = 'h'
 
             if orientation <= 1:
                 # Use simple ratio
@@ -180,7 +180,7 @@ class Layout:
                 logger.warning('Not supported orientation: ' + slot.getOrientation())
                 continue
 
-            if currentImageAndPath.getDetectedOrientation != slot.getOrientation():
+            if currentImageAndPath.getDetectedOrientation() != slot.getOrientation():
                 logger.error('Not the same orientation between detected and slot !!!')
 
             currentImageAndPath.rotateAccordingToExif()
@@ -342,7 +342,8 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         sizey = sizex / ratio
         thumbnailImage = thumbnailImage.resize((sizex, sizey_keep), Image.ANTIALIAS)
         if sizey_keep > sizey:
-            thumbnailImage = thumbnailImage.crop((0, (sizey - sizey_keep) / 2), (sizex, (sizey - sizey_keep) / 2 + sizey))
+            thumbnailImage = thumbnailImage.crop((0, int((sizey_keep - sizey) / 2), sizex,
+            int((sizey_keep - sizey) / 2 + sizey)))
         image.paste(thumbnailImage, (deltax, int(100 + chapterNumber * pageProperties.bookmarksize.y
         * 1.2)))
 

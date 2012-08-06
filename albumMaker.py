@@ -221,7 +221,6 @@ class Layout:
 
             except:
                 logger.warning("No comments for '%s'" % currentImageAndPath.getName())
-                title = 'Texte bidon'
 
             d = ImageDraw.Draw(imageSrc)
             font = ImageFont.truetype(self.pageProperties.finalImageFont, self.pageProperties.finalImageFontSize)
@@ -245,7 +244,7 @@ class Layout:
 
             lines = Layout.getLinesFromTitle(title, (maxsizex, 0), d, font)
             if automode and len(lines) > 1:
-                logger.warning('Le texte est plus grand que la largeur de la photo !')
+                logger.error('Le texte est plus grand que la largeur de la photo !')
             lineindex = 0
             for line in lines:
                 text = line[0]
@@ -463,7 +462,7 @@ def main():
         img =  [ ImageAndPath("ressources/blackh.jpg") ]
         chapters = { }
         chapterList = { }
-        for i in range(0, 20):
+        for i in range(0, 21):
             chapters[i] = img
             chapterList[i] = 'Chapitre %i' % i
     else:

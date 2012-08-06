@@ -64,6 +64,7 @@ class ImageAndPath:
         self.path = path
         self.image = None
         self.detectedOrientation = None
+        self.rotated = False
 
     def getPath(self):
         return self.path
@@ -81,13 +82,15 @@ class ImageAndPath:
         self.image = None
 
     def getExifOrientation(self):
-        info = self.getImage()._getexif()
-        if info != None:
-            for tag, value in info.items():
-                decoded = TAGS.get(tag, tag)
-                if decoded == 'Orientation':
-                    return value
-        return 0
+        if self.rotated:
+            return 0
+        else:
+            info = self.getImage()._getexif()
+            if info != None:
+                for tag, value in info.items():
+                    decoded = TAGS.get(tag, tag)
+                    if decoded == 'Orientation':
+                        return value
 
     def rotateAccordingToExif(self):
         orientation = self.getExifOrientation()
@@ -168,6 +171,7 @@ class Layout:
         for slot in self.slots:
             currentImageAndPath = images[i]
             i += 1
+            currentImageAndPath.rotateAccordingToExif()
             currentImage = currentImageAndPath.getImage()
 
             if slot.getOrientation() == 'h':
@@ -183,7 +187,6 @@ class Layout:
             if currentImageAndPath.getDetectedOrientation() != slot.getOrientation():
                 logger.error('Not the same orientation between detected and slot !!!')
 
-            currentImageAndPath.rotateAccordingToExif()
 
             # Compute ratio deltas
             curx = currentImage.size[0]
@@ -295,7 +298,7 @@ class Layout:
 
     @staticmethod
     def getCompatibleLayout(layouts, images):
-        imageNumber = 3
+        imageNumber = min(3, len(images))
         while imageNumber > 0:
             compatibleLayout = Layout.getCompatibleLayoutForOneImageNumber(layouts, images[0:imageNumber])
             if compatibleLayout != None:
@@ -335,7 +338,7 @@ def renderIndex(image, chapterList, chapters, pageProperties):
 
         thumbnailImageAndPath = chapters[chapterNumber][0]
         thumbnailImageAndPath.rotateAccordingToExif()
-        thumbnailImage = thumbnailImageAndPath.getImage()
+        thumbnailImage = thumbnailImageAndPath.getImage().copy()
         ratio = 3. / 2
         sizex = 240
         sizey_keep = sizex * thumbnailImage.size[1] / thumbnailImage.size[0]

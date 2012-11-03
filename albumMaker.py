@@ -97,13 +97,14 @@ class ImageAndPath:
         if orientation > 1:
             if orientation == 6:
                 degree = Image.ROTATE_270
-            elif orientation == 4:
+            elif orientation == 4 or orientation == 8:
                 degree = Image.ROTATE_90
             else:
                 logger.warning('EXIF orientation %i not supported yet : %s' % orientation)
                 degree = 0
             self.image = self.getImage().transpose(degree)
-            logger.info('Image rotated')
+            logger.info('Image rotated of %i degrees' % degree)
+        self.rotated = True
 
     def getDetectedOrientation(self):
         if self.detectedOrientation == None:
@@ -122,7 +123,7 @@ class ImageAndPath:
             else:
                 # Use Exif orientation
                 logger.debug('Detected exif orientation %i' % orientation)
-                if orientation == 6 or orientation == 4:
+                if orientation == 6 or orientation == 4 or orientation == 8:
                     self.detectedOrientation = 'v'
                 else:
                     logger.warning('Not supported EXIF orientation : %i' % orientation)

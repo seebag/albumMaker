@@ -493,7 +493,7 @@ def main():
     page = 0
     pageImage = getNewPageImage(pageProperties)
     renderIndex(pageImage, chapterList, chapters, pageProperties)
-    pageImage.save('%s/page-%i.png' % (outputdir, page))
+    pageImage.save('%s/page-%i.jpg' % (outputdir, page), 'JPEG', quality=99)
     logger.info('Index rendered')
 
     page = 1
@@ -519,7 +519,7 @@ def main():
 
             compatibleLayout.render(pageImage, images[index:index+imageNumber])
 
-            pageImage.save('%s/page-%i.png' % (outputdir, page))
+            pageImage.save('%s/page-%i.jpg' % (outputdir, page), 'JPEG', quality=99)
 
             logger.info(' ==> Page %i has been rendered with image %i to %i with layout %s' % (page, index, index
             + imageNumber, compatibleLayout.name))

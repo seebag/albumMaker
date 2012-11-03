@@ -100,7 +100,7 @@ class ImageAndPath:
             elif orientation == 4 or orientation == 8:
                 degree = Image.ROTATE_90
             else:
-                logger.warning('EXIF orientation %i not supported yet : %s' % orientation)
+                logger.error('EXIF orientation %i not supported yet' % orientation)
                 degree = 0
             self.image = self.getImage().transpose(degree)
             logger.info('Image rotated of %i degrees' % degree)
@@ -355,6 +355,7 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         pageProperties.bookmarksize.y / 2 - size[1] / 2) 
         draw.text((deltax + 270, positiony), chapterName, '#000000', font)
         drawBookmark(image, chapterNumber, '', pageProperties)
+        logger.info("Chapter '%s' added to index" % chapterName)
 
 def getNewPageImage(pageProperties):
     image = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#' +

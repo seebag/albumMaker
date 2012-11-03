@@ -351,6 +351,12 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         * 1.2)))
 
         size = draw.textsize(chapterName, font)
+        maxsize = 1950
+        if size[0] > maxsize:
+            while size[0] > maxsize:
+                chapterName = chapterName[:len(chapterName) - 1]
+                size = draw.textsize(chapterName, font)
+            chapterName += '...'
         positiony = int(100 + chapterNumber * pageProperties.bookmarksize.y * 1.2 +
         pageProperties.bookmarksize.y / 2 - size[1] / 2) 
         draw.text((deltax + 270, positiony), chapterName, '#000000', font)

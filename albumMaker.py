@@ -351,9 +351,8 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         * 1.2)))
 
         size = draw.textsize(chapterName, font)
-        maxsize = 1950
-        if size[0] > maxsize:
-            while size[0] > maxsize:
+        if size[0] > pageProperties.bookmarkMaxLength:
+            while size[0] > pageProperties.bookmarkMaxLength:
                 chapterName = chapterName[:len(chapterName) - 1]
                 size = draw.textsize(chapterName, font)
             chapterName += '...'
@@ -389,6 +388,7 @@ def parseConfig(configFile):
     pageProperties.bookmarksize = Size(config.get('general', 'index.bookmark.size'))
     pageProperties.bookmarkFont = config.get('general', 'index.bookmark.font')
     pageProperties.bookmarkFontSize = config.getint('general', 'index.bookmark.fontSize')
+    pageProperties.bookmarkMaxLength = config.getint('general', 'index.bookmark.maxLength')
     pageProperties.indexColors = [ ]
     for colors in config.get('general',  'index.colors').split(','):
         pageProperties.indexColors.append(colors.strip())

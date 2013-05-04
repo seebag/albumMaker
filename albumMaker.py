@@ -41,7 +41,7 @@ class Size:
         self.x2 = 0
         self.y2 = 0
         self.align = 'left'
-        if string != 'auto':
+        if string != 'auto' and string != 'text':
             split1 = string.split('+')
             splitxy = split1[0].split('x')
             self.x = int(splitxy[0])
@@ -52,6 +52,8 @@ class Size:
                 self.y2 = int(splitxy2[1])
             if len(split1) > 2:
                 self.align = split1[2]
+        elif string == 'text':
+            self.align = 'text'
         else:
             self.align = 'center'
 
@@ -60,6 +62,9 @@ class Size:
         return (self.x, self.y)
 
 class ImageAndPath:
+    IMAGE = 0
+    TEXT = 1
+
     def __init__(self, path):
         self.path = path
         self.image = None
@@ -72,17 +77,30 @@ class ImageAndPath:
     def getName(self):
         return os.path.basename(self.path)
 
+    def getType(self):
+        if self.path.lower().endswith('.jpg'):
+            return ImageAndPath.IMAGE
+        elif self.path.lower().endswith('.txt'):
+            return ImageAndPath.TEXT
 
     def getImage(self):
         if self.image == None:
-            self.image = Image.open(self.path)
+            if self.getType() == ImageAndPath.IMAGE:
+                self.image = Image.open(self.path)
+            elif self.getType() == ImageAndPath.TEXT:
+                self.image = DrawUtils.getTextImage(
+                self.path, pageProperties.finalImageFont,
+                int(pageProperties.finalImageFontSize * 1.3), 
+                (pageProperties.imageResolutionLong,
+                pageProperties.imageResolutionLong * 2))
+                self.rotated = True
         return self.image
 
     def release(self):
         self.image = None
 
     def getExifOrientation(self):
-        if self.rotated:
+        if self.rotated or self.getType() == ImageAndPath.TEXT:
             return 0
         else:
             info = self.getImage()._getexif()
@@ -107,7 +125,10 @@ class ImageAndPath:
         self.rotated = True
 
     def getDetectedOrientation(self):
+        if self.getType() == ImageAndPath.TEXT:
+            self.detectedOrientation = 'h'
         if self.detectedOrientation == None:
+
             orientation = self.getExifOrientation()
             currentImage = self.getImage()
             self.detectedOrientation = 'h'
@@ -154,6 +175,11 @@ class Layout:
         for slot in self.slots:
             currentImageAndPath = images[i]
             i += 1
+            if currentImageAndPath.getType() == ImageAndPath.TEXT:
+                if slot.getTextPosition().align != 'text':
+                    return False
+                else:
+                    logger.info('Text is detected, ')
             currentImage = currentImageAndPath.getImage()
             detectedOrientation = currentImageAndPath.getDetectedOrientation()
 
@@ -194,34 +220,43 @@ class Layout:
             cury = currentImage.size[1]
             overheadx = 0
             overheady = 0
+            deltax = 0
+            deltay = 0
 
-            if sizex * cury != sizey * curx:
-                # Not original ratio
-                if slot.getOrientation() == 'h':
-                    overheadx = sizex - (sizey * curx / cury) 
-                else:
-                    overheady = sizey - (sizex * cury / curx)
-            deltax = overheadx / 2
-            deltay = overheady / 2
-            logger.debug('delta to apply %ix%i' % (deltax, deltay))
+            if currentImageAndPath.getType() != ImageAndPath.TEXT:
+                if sizex * cury != sizey * curx:
+                    # Not original ratio
+                    if slot.getOrientation() == 'h':
+                        if curx / cury > 2:
+                            logger.info("Panoramique image detected")
+                            overheadx = - int(sizex * 0.2)
+                            overheady = int(sizey - (sizex * 1.2 * cury / curx))
+                        else:
+                            overheadx = sizex - (sizey * curx / cury) 
+                    else:
+                        overheady = sizey - (sizex * cury / curx)
+                deltax = overheadx / 2
+                deltay = overheady / 2
+                logger.debug('delta to apply %ix%i' % (deltax, deltay))
 
-            # Resize image
-            logger.debug('Resize image to %ix%i' % (sizex - overheadx, sizey - overheady))
-            currentImage = currentImage.resize((sizex - overheadx, sizey - overheady),
-            Image.ANTIALIAS)
+                # Resize image
+                logger.debug('Resize image to %ix%i' % (sizex - overheadx, sizey - overheady))
+                currentImage = currentImage.resize((sizex - overheadx, sizey - overheady),
+                Image.ANTIALIAS)
 
             # Insert image 
             imageSrc.paste(currentImage, (slot.getPosition().x + deltax, slot.getPosition().y +
             deltay))
             title = ''
-            try:
-                info = IPTCInfo(currentImageAndPath.getPath())
-                title = info.data['caption/abstract']
-                if title == None:
-                    title = ''
+            if currentImageAndPath.getType() == ImageAndPath.IMAGE:
+                try:
+                    info = IPTCInfo(currentImageAndPath.getPath())
+                    title = info.data['caption/abstract'].decode('utf-8')
+                    if title == None:
+                        title = ''
 
-            except:
-                logger.warning("No comments for '%s'" % currentImageAndPath.getName())
+                except:
+                    logger.warning("No comments for '%s'" % currentImageAndPath.getName())
 
             d = ImageDraw.Draw(imageSrc)
             font = ImageFont.truetype(self.pageProperties.finalImageFont, self.pageProperties.finalImageFontSize)
@@ -243,51 +278,20 @@ class Layout:
             else:
                 maxsizex = sizex
 
-            lines = Layout.getLinesFromTitle(title, (maxsizex, 0), d, font)
-            if automode and len(lines) > 1:
-                logger.error('Le texte est plus grand que la largeur de la photo !')
-            lineindex = 0
-            for line in lines:
-                text = line[0]
-                textsize = line[1]
-                if slot.getTextPosition().align == 'left':
-                    deltatextx = 0
-                elif slot.getTextPosition().align == 'center':
-                    deltatextx = maxsizex / 2 - textsize[0] / 2
-                elif slot.getTextPosition().align == 'right':
-                    deltatextx = maxsizex - textsize[0]
-                else:
-                    logger.warning('Undefined %s centering' % slot.getTextPosition().align)
-                    deltatextx = 0
-                d.text((positionx + deltatextx, positiony + lineindex * textsize[1] * 1.5), text, '#000000', font)
-                logger.debug("Writing text '%s' of size %ix%i at %ix%i align=%s" % (text,
-                textsize[0], textsize[1], positionx +
-                deltatextx, positiony + lineindex * textsize[1] * 1.5,
-                slot.getTextPosition().align))
-                lineindex += 1
+            if slot.getTextPosition().y2 != 0:
+                maxsizey = slot.getTextPosition().y2 - slot.getTextPosition().y
+            else:
+                # Automode or single line mode
+                maxsizey = 0
+
+            if currentImageAndPath.getType() != ImageAndPath.TEXT:
+                DrawUtils.drawText(title, d, (positionx, positiony), (maxsizex, maxsizey), font,
+                '#000000', slot.getTextPosition().align)
 
             logger.info("Image '%s' added" % currentImageAndPath.getName())
             Layout.allPicturesInserted += 1
             currentImageAndPath.release()
 
-    @staticmethod
-    def getLinesFromTitle(title, boundingbox, draw, font):
-        titletab = title.split(' ')
-        lines = []
-        line = ''
-        oldline = ''
-        oldtextsize = 0
-        for word in titletab:
-            line += word + ' '
-            textsize = draw.textsize(line, font)
-            if textsize[0] > boundingbox[0]:
-                lines.append((oldline[0:len(oldline)-1], oldtextsize))
-                line = word + ' '
-            oldline = line
-            oldtextsize = textsize
-
-        lines.append((oldline[0:len(oldline)-1], oldtextsize))
-        return lines
 
     @staticmethod
     def getCompatibleLayoutForOneImageNumber(layouts, images):
@@ -337,6 +341,8 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         draw = ImageDraw.Draw(image)
 
         thumbnailImageAndPath = chapters[chapterNumber][0]
+        if thumbnailImageAndPath.getType() != ImageAndPath.IMAGE and len(chapters[chapterNumber]) > 1:
+            thumbnailImageAndPath = chapters[chapterNumber][1]
         thumbnailImageAndPath.rotateAccordingToExif()
         thumbnailImage = thumbnailImageAndPath.getImage().copy()
         ratio = 3. / 2
@@ -362,6 +368,88 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         drawBookmark(image, chapterNumber, '', pageProperties)
         logger.info("Chapter '%s' added to index" % chapterName)
 
+class DrawUtils:
+    @staticmethod
+    def drawText(textToDraw, draw, position, boundingRect, font, color, align):
+        lines = DrawUtils.getLinesFromTitle(textToDraw, boundingRect, draw, font)
+        if boundingRect[1] == 0 and len(lines) > 1:
+            logger.error('Le texte est plus grand que la largeur de la photo !')
+# TODO bring support for multiline limit
+        lineindex = 0
+        for line in lines:
+            text = line[0]
+            textsize = line[1]
+            style = line[2]
+            if align == 'left':
+                deltatextx = 0
+            elif align == 'center':
+                deltatextx = boundingRect[0] / 2 - textsize[0] / 2
+            elif align == 'right':
+                deltatextx = boundingRect[0] - textsize[0]
+            else:
+                logger.warning('Undefined %s centering' % align)
+                deltatextx = 0
+            positionTextx = position[0] + deltatextx
+            positionTexty = position[1] + lineindex * textsize[1] * 1.5
+            draw.text((positionTextx, positionTexty), text, color, font)
+            if style == 'H1':
+                logger.info('Text is a h1 "%s"' % text)
+                draw.line((positionTextx, positionTexty + textsize[1], positionTextx +
+                textsize[0], positionTexty + textsize[1]), fill='black', width=2)
+            logger.debug("Writing text '%s' of size %ix%i at %ix%i align=%s" % (text,
+            textsize[0], textsize[1], position[0] + deltatextx, 
+            position[1] + lineindex * textsize[1] * 1.5, align))
+            lineindex += 1
+
+    @staticmethod
+    def getLinesFromTitle(title, boundingbox, draw, font):
+        title = title.replace('\r', '')
+        titleRealLine = title.split('\n')
+        lines = []
+        for realLine in titleRealLine:
+            titletab = realLine.split(' ')
+            line = ''
+            oldline = ''
+            oldtextsize = 0
+            if titletab[0] == 'h1.':
+                style = 'H1'
+                titletab = titletab[1:]
+            else:
+                style = 'N'
+            for word in titletab:
+                wordProcessed = False
+                while wordProcessed == False:
+                    line += word
+                    textsize = draw.textsize(line, font)
+                    line += ' '
+                    if textsize[0] > boundingbox[0]:
+                        lines.append((oldline[0:len(oldline)-1], oldtextsize, style))
+                        line = ''
+                    else:
+                        wordProcessed = True
+                    oldline = line
+                    oldtextsize = textsize
+
+            if oldtextsize == 0:
+                oldtextsize = textsize
+            lines.append((oldline[0:len(oldline)-1], oldtextsize, style))
+        return lines
+
+    @staticmethod
+    def getTextImage(path, fontName, fontSize, resolution):
+        f = open(path, 'r')
+        text = ''
+        for line in f:
+            text += line.decode('utf-8')
+        f.close()
+
+        image = Image.new('RGB', resolution, '#' + pageProperties.finalImageBackgroundColor)
+        d = ImageDraw.Draw(image)
+
+        font = ImageFont.truetype(fontName, fontSize)
+        DrawUtils.drawText(text, d, (0, 0), resolution , font, '#000000', 'center')
+        return image
+
 def getNewPageImage(pageProperties):
     image = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#' +
     pageProperties.finalImageBackgroundColor)
@@ -373,11 +461,12 @@ def getNewPageImage(pageProperties):
 class PageProperties:
     pass
 
+pageProperties = PageProperties()
+
 def parseConfig(configFile):
     logger.info("Parsing configuration")
     config = ConfigParser.RawConfigParser()
     config.read(configFile)
-    pageProperties = PageProperties()
     layouts = []
     pageProperties.finalImageResolution = Size(config.get('general', 'finalImage.resolution'))
     pageProperties.finalImageFont = config.get('general', 'finalImage.font')
@@ -479,7 +568,7 @@ def main():
 
         allimages = []
         for filename in natsorted(os.listdir(inputdir)):
-            if filename.endswith('.JPG') or filename.endswith('.jpg'):
+            if filename.lower().endswith('.jpg') or filename.lower().endswith('.txt'):
                 allimages.append(ImageAndPath(inputdir + filename))
         for i in allimages:
             id = re.match(r'.*/(?P<chapter>\d+)-(?P<chapterName>.*)\((?P<number>\d+)\).*', i.getPath()).groupdict()

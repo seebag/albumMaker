@@ -83,13 +83,22 @@ class ImageAndPath:
         elif self.path.lower().endswith('.txt'):
             return ImageAndPath.TEXT
 
+    def getText(self):
+        text = ''
+        if self.getType() == ImageAndPath.TEXT:
+            f = open(self.path, 'r')
+            for line in f:
+                text += line.decode('utf-8')
+            f.close()
+        return text
+
     def getImage(self):
         if self.image == None:
             if self.getType() == ImageAndPath.IMAGE:
                 self.image = Image.open(self.path)
             elif self.getType() == ImageAndPath.TEXT:
                 self.image = DrawUtils.getTextImage(
-                self.path, pageProperties.finalImageFont,
+                self.getText(), pageProperties.finalImageFont,
                 int(pageProperties.finalImageFontSize * 1.3), 
                 (pageProperties.imageResolutionLong,
                 pageProperties.imageResolutionLong * 2))
@@ -176,10 +185,14 @@ class Layout:
             currentImageAndPath = images[i]
             i += 1
             if currentImageAndPath.getType() == ImageAndPath.TEXT:
-                if slot.getTextPosition().align != 'text':
-                    return False
+# FIXME use image height of generated text image instead of fixed number of letters
+                if len(currentImageAndPath.getText()) > 700:
+                    if slot.getTextPosition().align != 'text':
+                        return False
+                    else:
+                        logger.info('Full page text is detected')
                 else:
-                    logger.info('Text is detected, ')
+                    logger.info('Image text is detected')
             currentImage = currentImageAndPath.getImage()
             detectedOrientation = currentImageAndPath.getDetectedOrientation()
 
@@ -340,9 +353,11 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         font = ImageFont.truetype(pageProperties.bookmarkFont, pageProperties.bookmarkFontSize)
         draw = ImageDraw.Draw(image)
 
-        thumbnailImageAndPath = chapters[chapterNumber][0]
-        if thumbnailImageAndPath.getType() != ImageAndPath.IMAGE and len(chapters[chapterNumber]) > 1:
-            thumbnailImageAndPath = chapters[chapterNumber][1]
+        currentIndex = 0
+        thumbnailImageAndPath = chapters[chapterNumber][currentIndex]
+        while thumbnailImageAndPath.getType() != ImageAndPath.IMAGE and len(chapters[chapterNumber]) > currentIndex:
+            thumbnailImageAndPath = chapters[chapterNumber][currentIndex]
+            currentIndex += 1
         thumbnailImageAndPath.rotateAccordingToExif()
         thumbnailImage = thumbnailImageAndPath.getImage().copy()
         ratio = 3. / 2
@@ -436,13 +451,7 @@ class DrawUtils:
         return lines
 
     @staticmethod
-    def getTextImage(path, fontName, fontSize, resolution):
-        f = open(path, 'r')
-        text = ''
-        for line in f:
-            text += line.decode('utf-8')
-        f.close()
-
+    def getTextImage(text, fontName, fontSize, resolution):
         image = Image.new('RGB', resolution, '#' + pageProperties.finalImageBackgroundColor)
         d = ImageDraw.Draw(image)
 
@@ -571,7 +580,8 @@ def main():
             if filename.lower().endswith('.jpg') or filename.lower().endswith('.txt'):
                 allimages.append(ImageAndPath(inputdir + filename))
         for i in allimages:
-            id = re.match(r'.*/(?P<chapter>\d+)-(?P<chapterName>.*)\((?P<number>\d+)\).*', i.getPath()).groupdict()
+            print i.getPath()
+            id = re.match(r'.*/(?P<chapter>\d+) *- *(?P<chapterName>.*)\((?P<number>\d+)\).*', i.getPath()).groupdict()
             if not chapters.has_key(int(id['chapter'])):
                 chapters[int(id['chapter'])] = []
                 chapterList[int(id['chapter'])] = id['chapterName'].strip().decode('utf-8')

@@ -359,12 +359,12 @@ def drawBookmark(image, chapterNumber, chapterName, pageProperties):
         logger.info("Printing chapter '%s' title" % chapterName)
         font = ImageFont.truetype(pageProperties.bookmarkFont, pageProperties.bookmarkFontSize)
         size = draw.textsize(chapterName, font)
-        mask=Image.new('L', size)
+        mask = Image.new('L', size)
         drawImg = ImageDraw.Draw(mask)
         drawImg.text((0,0), chapterName, 255, font)
         m2 = mask.rotate(90)
-        image.paste(ImageOps.colorize(m2, (0,0,0), (0,0,0)), (positionx +
-        pageProperties.bookmarksize.x / 2 - size[1] / 2,100),  m2)
+        textposx = positionx + pageProperties.bookmarksize.x / 2 - size[1] / 2
+        image.paste(ImageOps.colorize(m2, (0, 0, 0), (0, 0, 0)), (textposx, 400),  m2)
 
 
 def renderIndex(image, chapterList, chapters, pageProperties):

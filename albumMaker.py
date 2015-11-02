@@ -19,7 +19,11 @@ from colorLogging import ColorizingStreamHandler
 
 logger = logging.getLogger('albumMaker')
 
+
 class Slot:
+    """
+    Define a picture slot in a layout
+    """
     def __init__(self, orientation, imagePosition, textPosition):
         self.orientation = orientation
         self.imagePosition = imagePosition
@@ -33,6 +37,7 @@ class Slot:
 
     def getTextPosition(self):
         return self.textPosition
+
 
 class Size:
     def __init__(self, string):
@@ -57,9 +62,9 @@ class Size:
         else:
             self.align = 'center'
 
-
     def getTuple(self):
-        return (self.x, self.y)
+        return self.x, self.y
+
 
 class ImageAndPath:
     IMAGE = 0
@@ -93,15 +98,15 @@ class ImageAndPath:
         return text
 
     def getImage(self):
-        if self.image == None:
+        if self.image is None:
             if self.getType() == ImageAndPath.IMAGE:
                 self.image = Image.open(self.path)
             elif self.getType() == ImageAndPath.TEXT:
                 self.image = DrawUtils.getTextImage(
-                self.getText(), pageProperties.finalImageFont,
-                int(pageProperties.finalImageFontSize * 1.3), 
-                (pageProperties.imageResolutionLong,
-                pageProperties.imageResolutionLong * 2))
+                    self.getText(), pageProperties.finalImageFont,
+                    int(pageProperties.finalImageFontSize * 1.3),
+                    (pageProperties.imageResolutionLong,
+                        pageProperties.imageResolutionLong * 2))
                 self.rotated = True
         return self.image
 
@@ -136,7 +141,7 @@ class ImageAndPath:
     def getDetectedOrientation(self):
         if self.getType() == ImageAndPath.TEXT:
             self.detectedOrientation = 'h'
-        if self.detectedOrientation == None:
+        if self.detectedOrientation is None:
 
             orientation = self.getExifOrientation()
             currentImage = self.getImage()
@@ -159,13 +164,15 @@ class ImageAndPath:
                     logger.warning('Not supported EXIF orientation : %i' % orientation)
                     self.detectedOrientation = 'h'
 
-            logger.debug('Detected orientation %s for %s' % (self.detectedOrientation,
-            self.getPath()))
+            logger.debug('Detected orientation %s for %s' % (self.detectedOrientation, self.getPath()))
 
         return self.detectedOrientation
 
 
 class Layout:
+    """
+    A page layout
+    """
     allPicturesInserted = 0
     def __init__(self, name, pageProperties):
         self.name = name
@@ -185,7 +192,7 @@ class Layout:
             currentImageAndPath = images[i]
             i += 1
             if currentImageAndPath.getType() == ImageAndPath.TEXT:
-# FIXME use image height of generated text image instead of fixed number of letters
+                # FIXME use image height of generated text image instead of fixed number of letters
                 if len(currentImageAndPath.getText()) > 700:
                     if slot.getTextPosition().align != 'text':
                         return False
@@ -201,12 +208,16 @@ class Layout:
 
         return True
 
-
-    """
-    imageSrc : magick++ image src
-    picturesPath : path of images
-    """
     def render(self, imageSrc, images):
+        """
+        Render the page using the layout
+        :param imageSrc: magick++ image src
+        :type imageSrc: str
+        :param images: the images
+        :type images: list[ImageAndPath]
+        :return:
+        :rtype:
+        """
         i = 0
         for slot in self.slots:
             currentImageAndPath = images[i]
@@ -226,7 +237,6 @@ class Layout:
 
             if currentImageAndPath.getDetectedOrientation() != slot.getOrientation():
                 logger.error('Not the same orientation between detected and slot !!!')
-
 
             # Compute ratio deltas
             curx = currentImage.size[0]
@@ -254,23 +264,19 @@ class Layout:
 
                 # Resize image
                 logger.debug('Resize image to %ix%i' % (sizex - overheadx, sizey - overheady))
-                currentImage = currentImage.resize((sizex - overheadx, sizey - overheady),
-                Image.ANTIALIAS)
+                currentImage = currentImage.resize((sizex - overheadx, sizey - overheady), Image.ANTIALIAS)
 
             # Insert image 
-            imageSrc.paste(currentImage, (slot.getPosition().x + deltax, slot.getPosition().y +
-            deltay))
+            imageSrc.paste(currentImage, (slot.getPosition().x + deltax, slot.getPosition().y + deltay))
             title = ''
             if currentImageAndPath.getType() == ImageAndPath.IMAGE:
                 try:
                     info = IPTCInfo(currentImageAndPath.getPath())
-                    title = info.data['caption/abstract'].decode('utf-8')
-                    if title == None:
-                        title = ''
-
+                    title = Layout.getDecodedTitle(info.data['caption/abstract'])
+                    # exiv2 -M"set Iptc.Application2.Caption La dream team!" 0-\ Le\ trajet\ et\ le\ chalet\ à\ Pourchery\ \(2\).JPG
                 except:
-                    logger.warning("No comments for '%s'" % currentImageAndPath.getName())
-
+                    title = ''
+    
             d = ImageDraw.Draw(imageSrc)
             font = ImageFont.truetype(self.pageProperties.finalImageFont, self.pageProperties.finalImageFontSize)
             logger.debug('Title = ' + title)
@@ -298,13 +304,27 @@ class Layout:
                 maxsizey = 0
 
             if currentImageAndPath.getType() != ImageAndPath.TEXT:
-                DrawUtils.drawText(title, d, (positionx, positiony), (maxsizex, maxsizey), font,
-                '#000000', slot.getTextPosition().align)
+                DrawUtils.drawText(title, d, (positionx, positiony), (maxsizex, maxsizey), font, '#000000',
+                                   slot.getTextPosition().align)
 
             logger.info("Image '%s' added" % currentImageAndPath.getName())
             Layout.allPicturesInserted += 1
             currentImageAndPath.release()
 
+    @staticmethod
+    def getDecodedTitle(encodedTitle):
+        encodings = ['utf_8', 'iso_8859_15', 'latin_1']
+        for enc in encodings:
+            try:
+                title = encodedTitle.decode(enc)
+                if title is None:
+                    title = ''
+                return title
+            except Exception as e:
+                logging.error(e)
+                if enc == encodings[-1]:
+                    logger.error("Unable to decode comment")
+                    return ''
 
     @staticmethod
     def getCompatibleLayoutForOneImageNumber(layouts, images):
@@ -324,7 +344,8 @@ class Layout:
                 imageNumber -= 1
 
         logger.error('No layout compatible found')
-        return (0, None)
+        return 0, None
+
 
 def drawBookmark(image, chapterNumber, chapterName, pageProperties):
     positionx = pageProperties.finalImageResolution.x - pageProperties.bookmarksize.x
@@ -383,14 +404,19 @@ def renderIndex(image, chapterList, chapters, pageProperties):
         drawBookmark(image, chapterNumber, '', pageProperties)
         logger.info("Chapter '%s' added to index" % chapterName)
 
+
 class DrawUtils:
     @staticmethod
     def drawText(textToDraw, draw, position, boundingRect, font, color, align):
         lines = DrawUtils.getLinesFromTitle(textToDraw, boundingRect, draw, font)
         if boundingRect[1] == 0 and len(lines) > 1:
             logger.error('Le texte est plus grand que la largeur de la photo !')
-# TODO bring support for multiline limit
+            # TODO bring support for multiline limit
         lineindex = 0
+        interline = 0
+        for line in lines:
+            interline = max(line[1][1], interline)
+
         for line in lines:
             text = line[0]
             textsize = line[1]
@@ -405,7 +431,7 @@ class DrawUtils:
                 logger.warning('Undefined %s centering' % align)
                 deltatextx = 0
             positionTextx = position[0] + deltatextx
-            positionTexty = position[1] + lineindex * textsize[1] * 1.5
+            positionTexty = position[1] + lineindex * interline * 1.5
             draw.text((positionTextx, positionTexty), text, color, font)
             if style == 'H1':
                 logger.info('Text is a h1 "%s"' % text)
@@ -459,6 +485,7 @@ class DrawUtils:
         DrawUtils.drawText(text, d, (0, 0), resolution , font, '#000000', 'center')
         return image
 
+
 def getNewPageImage(pageProperties):
     image = Image.new('RGB', pageProperties.finalImageResolution.getTuple(), '#' +
     pageProperties.finalImageBackgroundColor)
@@ -466,11 +493,11 @@ def getNewPageImage(pageProperties):
     return image
 
 
-
 class PageProperties:
     pass
 
 pageProperties = PageProperties()
+
 
 def parseConfig(configFile):
     logger.info("Parsing configuration")
@@ -491,7 +518,6 @@ def parseConfig(configFile):
     for colors in config.get('general',  'index.colors').split(','):
         pageProperties.indexColors.append(colors.strip())
 
-    
     for section in config.sections():
         if section.startswith('layout-'):
             l = Layout(section, pageProperties)
@@ -510,7 +536,8 @@ def parseConfig(configFile):
                     l.addSlot(values[0].strip(), Size(values[1].strip()), Size(values[2].strip()))
 
     logger.info("Parsing done")
-    return (pageProperties, layouts)
+    return pageProperties, layouts
+
 
 def main():
     parser = argparse.ArgumentParser(description='Make album from single photos')
@@ -561,19 +588,19 @@ def main():
         ]
         }
         chapterList = {
-        1 : 'Chapitre 1',
-        2 : 'Chapitre 2',
+            1: 'Chapitre 1',
+            2: 'Chapitre 2',
         }
     elif args['testChapter']:
-        img =  [ ImageAndPath("ressources/blackh.jpg") ]
-        chapters = { }
-        chapterList = { }
+        img = [ImageAndPath("ressources/blackh.jpg")]
+        chapters = {}
+        chapterList = {}
         for i in range(0, 21):
             chapters[i] = img
             chapterList[i] = 'Chapitre %i' % i
     else:
-        chapterList = { }
-        chapters = { }
+        chapterList = {}
+        chapters = {}
 
         allimages = []
         for filename in natsorted(os.listdir(inputdir)):
@@ -587,7 +614,6 @@ def main():
                 chapterList[int(id['chapter'])] = id['chapterName'].strip().decode('utf-8')
             chapters[int(id['chapter'])].append(i)
 
-
     logger.info('Starting index rendering')
     page = 0
     pageImage = getNewPageImage(pageProperties)
@@ -596,7 +622,6 @@ def main():
     logger.info('Index rendered')
 
     page = 1
-    index = 0
     for chapterNumber in chapters:
         images = chapters[chapterNumber]
         chapterName = chapterList[chapterNumber]
@@ -612,16 +637,16 @@ def main():
                 drawBookmark(pageImage, chapterNumber, '', pageProperties)
 
             (imageNumber, compatibleLayout) = Layout.getCompatibleLayout(layouts, images[index:])
-            if compatibleLayout == None:
+            if compatibleLayout is None:
                 logging.error('No layout compatible found')
                 return
 
-            compatibleLayout.render(pageImage, images[index:index+imageNumber])
+            #compatibleLayout.render(pageImage, images[index:index+imageNumber])
 
             pageImage.save('%s/page-%i.jpg' % (outputdir, page), 'JPEG', quality=99)
 
-            logger.info(' ==> Page %i has been rendered with image %i to %i with layout %s' % (page, index, index
-            + imageNumber, compatibleLayout.name))
+            logger.info(' ==> Page %i has been rendered with image %i to %i with layout %s' %
+                        (page, index, index + imageNumber, compatibleLayout.name))
 
             page += 1
             index += imageNumber
